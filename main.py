@@ -19,13 +19,19 @@ from nc_exporter import NCExporter
 from pdf_report import generate_all_reports
 
 # Configuration
-UPLOAD_FOLDER = Path('uploads')
-OUTPUT_FOLDER = Path('outputs')
+# On Vercel, use /tmp (writable); locally use ./uploads and ./outputs
+if os.environ.get("VERCEL"):
+    UPLOAD_FOLDER = Path("/tmp/nesting_uploads")
+    OUTPUT_FOLDER = Path("/tmp/nesting_outputs")
+else:
+    UPLOAD_FOLDER = Path("uploads")
+    OUTPUT_FOLDER = Path("outputs")
+
 ALLOWED_EXTENSIONS = {'dxf'}
 
 # Create directories
-UPLOAD_FOLDER.mkdir(exist_ok=True)
-OUTPUT_FOLDER.mkdir(exist_ok=True)
+UPLOAD_FOLDER.mkdir(parents=True, exist_ok=True)
+OUTPUT_FOLDER.mkdir(parents=True, exist_ok=True)
 
 # FastAPI app
 app = FastAPI(
@@ -122,8 +128,32 @@ async def root():
 
 @app.get("/api/health")
 async def health():
-    """Health check endpoint"""
-    return {"status": "ok", "message": "Nesting Software API is running"}
+    """Basic health check - API is up."""
+    return {
+        "status": "ok",
+        "message": "Nesting Software API is running",
+        "service": "nesting-software-api",
+    }
+
+
+@app.get("/api/health/live")
+async def health_live():
+    """Liveness probe - process is alive and can respond."""
+    return {"status": "ok", "live": True}
+
+
+@app.get("/api/health/ready")
+async def health_ready():
+    """Readiness probe - app can accept work (e.g. temp dirs writable)."""
+    import tempfile
+    try:
+        UPLOAD_FOLDER.mkdir(parents=True, exist_ok=True)
+        OUTPUT_FOLDER.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(dir=str(UPLOAD_FOLDER), delete=True):
+            pass
+        return {"status": "ok", "ready": True}
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Not ready: {e}")
 
 
 @app.post("/api/preview-shapes")
